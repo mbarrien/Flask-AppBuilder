@@ -246,17 +246,27 @@ class BaseSecurityManager(AbstractSecurityManager):
         if self.auth_type == AUTH_OID:
             self.oid = OpenID(app)
         if self.auth_type == AUTH_OAUTH:
-            from flask_oauthlib.client import OAuth
+            from authlib.integrations.flask_client import OAuth
 
-            self.oauth = OAuth()
+            self.oauth = OAuth(fetch_token=self.oauth_tokengetter)
             self.oauth_remotes = dict()
             for _provider in self.oauth_providers:
                 provider_name = _provider["name"]
                 log.debug("OAuth providers init {0}".format(provider_name))
-                obj_provider = self.oauth.remote_app(
-                    provider_name, **_provider["remote_app"]
-                )
-                obj_provider._tokengetter = self.oauth_tokengetter
+
+                # Flask-AppBuilder previously use Flask-OAuthLib, but now uses AuthLib.
+                # The arguments for registering a remote_app are similar in the 2 libraries,
+                # but some arguments were renamed. We map between the names here for
+                # backwards compatibility.
+                remote_app = _provider["remote_app"]
+                if "api_base_url" not in remote_app and "base_url" in remote_app:
+                    remote_app["api_base_url"] = remote_app.pop("base_url")
+                if "client_id" not in remote_app and "consumer_key" in remote_app:
+                    remote_app["client_id"] = remote_app.pop("consumer_key")
+                if "api_base_url" not in remote_app and "consumer_secret" in remote_app:
+                    remote_app["client_secret"] = remote_app.pop("consumer_secret")
+
+                obj_provider = self.oauth.register(provider_name, **remote_app)
                 if not self.oauth_user_info:
                     self.oauth_user_info = self.get_oauth_user_info
                 # Whitelist only users with matching emails
